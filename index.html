@@ -588,7 +588,13 @@ h1.page-title {
 .ev-fatigue, .ev-miss { border-color: color-mix(in srgb, var(--danger) 50%, transparent) !important; }
 .ev-identify, .ev-guard, .ev-stop { border-color: var(--u1) !important; background: var(--u1s) !important; }
 
+#speedBtn[aria-pressed="true"] { border-color: var(--primary); background: var(--primary-soft); color: var(--text-bright); }
 /* Debrief */
+.hint-box { border: 1px solid var(--u3); background: var(--u3s); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4); margin: var(--sp-4) 0; font-size: var(--fs-sm); color: var(--text-bright); }
+.hint-box .eyebrow { display: block; color: var(--u3); margin-bottom: var(--sp-1); }
+.hint-box p + .eyebrow { margin-top: var(--sp-3); }
+.hint-locked { font-size: var(--fs-sm); color: var(--text-2); margin: var(--sp-3) 0; }
+.attempt { font-family: var(--font-mono); font-size: var(--fs-2xs); letter-spacing: .1em; color: var(--text-dim); text-transform: uppercase; }
 .result { display: flex; gap: var(--sp-4); align-items: center; flex-wrap: wrap; padding: var(--sp-4) var(--sp-5); border-radius: var(--r-md); margin-bottom: var(--sp-4); border: 1px solid; }
 .result.pass { border-color: var(--u1); background: var(--u1s); }
 .result.fail { border-color: var(--danger); background: var(--u5s); }
@@ -791,6 +797,7 @@ tr.flag-wrong td { background: var(--u5s); }
           <button type="button" class="btn btn-ghost" id="playBtn" aria-pressed="true">Pause</button>
           <button type="button" class="btn btn-ghost" id="stepBtn">Step 1 s</button>
           <button type="button" class="btn btn-ghost" id="skipBtn">Skip to end</button>
+          <button type="button" class="btn btn-ghost" id="speedBtn" aria-pressed="false">2X Speed</button>
           <button type="button" class="btn btn-ghost" id="editBtn">Edit layout</button>
           <button type="button" class="btn" id="toDebrief" hidden>Go to debrief ↓</button>
         </div>
@@ -1669,11 +1676,31 @@ const CTL_DESC = {
   vestibule: 'Two interlocked doors. Traps tailgaters and forced entry.'
 };
 
+const HINTS = {
+  1: ['Cameras only record. You need something that raises an alert in the one room nobody should be in at night, plus a camera that can see that same room.',
+      'Put a motion sensor in the Server Closet and use the camera mount in the server closet corner.'],
+  2: ['The safe is right inside the office door, so anything inside the building fires too late. Catch the intruder earlier: outside, or where the route funnels through.',
+      'Put a patrolling guard on the exterior patrol route. It is the cheapest control that crosses paths with the intruder early.'],
+  3: ['A lock cannot stop someone who follows a nurse in. Which room on the route is armed even during the workday?',
+      'Put a motion sensor in the Drug Vault and use the drug vault camera mount.'],
+  4: ['The rack is only steps past the door. Alarms that still need a camera to verify are too slow. Stop the tailgater at the door itself.',
+      'Put an access control vestibule on the data hall door.'],
+  5: ['Every room on the route is high-traffic, so motion sensors get ignored. Alarm a door that nobody should be forcing at 1 AM, then watch it.',
+      'Put a badge reader + door sensor on the gym back door, then place a camera inside the gym aimed at that door.'],
+  6: ['The insider has a valid badge, so badge readers never alarm. What detects anyone in a restricted room, badge or not?',
+      'Put a motion sensor in the R&D Lab, then place a camera inside the lab aimed back at the prototype bench.'],
+  7: ['The cash cart is steps inside the vault, so a vault motion sensor fires too late. Alarm the vault door so the seconds spent forcing it buy you time.',
+      'Put a badge reader + door sensor on the vault door, then place a camera inside the vault aimed at that door.'],
+  8: ['The dock and corridor are high-traffic, and guards blow the budget. Where would any movement at 3:30 AM be suspicious?',
+      'Put a motion sensor in the Data Hall, then place a camera inside the data hall covering the customer cage.']
+};
+let SPEED2X = false;
+try { SPEED2X = localStorage.getItem('eotp_speed2x') === '1'; } catch (e) {}
 const S = {
   idx: 0, unlocked: 1, stars: {}, done: {},
   placement: { spots: {}, cams: [] }, sel: null, placing: false,
   sim: null, tick: 0, timer: null, playing: false, camSeq: 0,
-  flagged: false, walls: []
+  flagged: false, walls: [], attempts: {}
 };
 const ch = () => CHALLENGES[S.idx];
 
@@ -2032,6 +2059,7 @@ function runReplay() {
   const c = ch();
   S.sel = null; S.placing = false; renderSpots(); renderCams(); renderInspector();
   S.sim = simulate(c, S.placement); S.tick = -1; S.flagged = false;
+  S.attempts[c.id] = (S.attempts[c.id] || 0) + 1;
   $('evlog').innerHTML = ''; $('debrief').hidden = true; $('replayPanel').hidden = false;
   document.querySelector('.side').classList.add('replaying');
   ['chAlert', 'chVerify', 'chId'].forEach(id => { $(id).className = 'chain-step'; $(id).querySelector('.st').textContent = 'waiting'; });
@@ -2044,13 +2072,14 @@ function runReplay() {
 }
 function play() {
   stopReplay(); S.playing = true; updPlayBtn();
-  S.timer = setInterval(() => { if (!advance()) { stopReplay(); updPlayBtn(); } }, 260);
+  S.timer = setInterval(() => { if (!advance()) { stopReplay(); updPlayBtn(); } }, SPEED2X ? 130 : 260);
 }
 function updPlayBtn() {
   const b = $('playBtn'), end = S.sim && S.tick >= S.sim.ticks.length - 1;
   b.textContent = S.playing ? 'Pause' : 'Play'; b.setAttribute('aria-pressed', S.playing);
   b.disabled = end; $('stepBtn').disabled = end; $('skipBtn').disabled = end;
   $('toDebrief').hidden = !end;
+  const sp = $('speedBtn'); sp.setAttribute('aria-pressed', SPEED2X); sp.textContent = SPEED2X ? '2X Speed · ON' : '2X Speed';
 }
 function advance() {
   const sim = S.sim; if (!sim) return false;
@@ -2141,7 +2170,8 @@ function renderDebrief() {
     ${rep.length ? `<div class="tbl-wrap"><table class="cs-table"><thead><tr><th scope="col">Control</th><th scope="col">Location</th><th scope="col">Result</th></tr></thead><tbody>
       ${rep.map(r => `<tr><td><span class="code-chip ${r[0].hue}">${r[0].code}</span> ${esc(r[0].name)}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('')}</tbody></table></div>`
       : '<p class="insp-sub">You did not place any controls.</p>'}
-    ${s.pass ? `<p class="lesson"><b>Why it works:</b> ${esc(c.lesson)}</p>` : `<p class="lesson"><b>Hint:</b> ${esc(hintFor(s))}</p>`}
+    ${s.pass ? `<p class="lesson"><b>Why it works:</b> ${esc(c.lesson)}</p>` : `<p class="lesson"><b>What went wrong:</b> ${esc(hintFor(s))}</p>`}
+    ${hintBlock(s)}
     <h3 class="sub-h">Access log review</h3>
     <p class="insp-sub">${esc(c.log.note)} Flag the one event that points to <b>tailgating or piggybacking</b>. Compare each open time to that door's normal maximum.</p>
     <div class="tbl-wrap"><table class="cs-table" id="logTable"><thead><tr><th scope="col">Time</th><th scope="col">Door</th><th scope="col">Badge</th><th scope="col">Name</th><th scope="col">Open (s)</th><th scope="col">Normal max (s)</th><th scope="col"><span class="sr-only">Action</span></th></tr></thead><tbody>
@@ -2153,6 +2183,18 @@ function renderDebrief() {
   box.querySelectorAll('[data-flag]').forEach(b => b.addEventListener('click', () => flagRow(+b.dataset.flag)));
   $('debrief').hidden = false;
   updateComplete();
+}
+function hintBlock(s) {
+  const c = ch(), n = S.attempts[c.id] || 0, h = HINTS[c.id];
+  const tag = `<p class="attempt">Attempt ${n}</p>`;
+  if (s.stars === 3) return tag;
+  const lead = s.pass ? 'You passed. To earn 3 stars, keep at least 40% of the budget. ' : '';
+  if (n < 2) return tag + `<p class="hint-locked">Not at 3 stars yet. A hint unlocks after your next attempt.</p>`;
+  let html = `<div class="hint-box" role="note"><span class="eyebrow">Hint 1 of 2 · unlocked after 2 attempts</span><p>${esc(lead + h[0])}</p>`;
+  if (n >= 4) html += `<span class="eyebrow">Hint 2 of 2 · unlocked after 4 attempts</span><p>${esc(h[1])}</p>`;
+  html += '</div>';
+  if (n < 4) html += `<p class="hint-locked">A stronger hint unlocks after ${4 - n} more attempt${4 - n === 1 ? '' : 's'}.</p>`;
+  return tag + html;
 }
 function hintFor(s) {
   const c = ch();
@@ -2219,6 +2261,12 @@ $('clearBtn').addEventListener('click', () => {
 $('playBtn').addEventListener('click', () => { if (S.playing) { stopReplay(); updPlayBtn(); } else play(); });
 $('stepBtn').addEventListener('click', () => { stopReplay(); advance(); updPlayBtn(); });
 $('skipBtn').addEventListener('click', skipToEnd);
+$('speedBtn').addEventListener('click', () => {
+  SPEED2X = !SPEED2X;
+  try { localStorage.setItem('eotp_speed2x', SPEED2X ? '1' : '0'); } catch (e) {}
+  if (S.playing) play(); else updPlayBtn();
+  say(SPEED2X ? 'Replay speed: 2X.' : 'Replay speed: normal.');
+});
 $('toDebrief').addEventListener('click', () => { $('debrief').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' }); $('debriefTitle').setAttribute('tabindex', '-1'); $('debriefTitle').focus({ preventScroll: true }); });
 $('editBtn').addEventListener('click', () => { resetReplay(); $('runBtn').focus(); });
 
